@@ -53,12 +53,6 @@ public class MainHook implements IXposedHookLoadPackage {
             "LIZLLL"
     };
 
-    private static final String[] AUTO_STREAK_RECEIVER_CANDIDATES = {
-            "com.ss.android.ugc.aweme.keepalive.KeepAliveReceiver",
-            "com.ss.android.ugc.aweme.lifecycle.LifecycleActiveReceiver",
-            "com.ss.android.common.applog.HotsoonReceiver"
-    };
-
     @Override
     public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) {
         if (!PKG_TIKTOK_1.equals(lpparam.packageName) && !PKG_TIKTOK_2.equals(lpparam.packageName)) return;
@@ -74,7 +68,6 @@ public class MainHook implements IXposedHookLoadPackage {
         }
         if (isMainProcess) {
             installGoogleLoginFix(lpparam);
-            installAutoStreak(lpparam);
         }
     }
 
@@ -893,102 +886,6 @@ public class MainHook implements IXposedHookLoadPackage {
         } finally {
             event.recycle();
         }
-    }
-
-    private void installAutoStreak(final XC_LoadPackage.LoadPackageParam lpparam) {
-        final String receiverClassName = hookAutoStreakAlarmReceiver(lpparam);
-        AutoStreakManager.configure(lpparam.classLoader, receiverClassName);
-        try {
-            XposedHelpers.findAndHookMethod(
-                    android.app.Application.class,
-                    "attach",
-                    android.content.Context.class,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            try {
-                                XposedBridge.log(TAG + ": auto streak attach callback");
-                                AutoStreakManager.initialize(
-                                        (android.content.Context) param.args[0],
-                                        lpparam.classLoader,
-                                        receiverClassName
-                                );
-                            } catch (Throwable t) {
-                                XposedBridge.log(TAG + " [auto streak attach callback] " + t);
-                            }
-                        }
-                    }
-            );
-
-            XposedBridge.hookAllMethods(
-                    android.app.Application.class,
-                    "onCreate",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            try {
-                                XposedBridge.log(TAG + ": auto streak onCreate fallback");
-                                AutoStreakManager.initialize(
-                                        (android.app.Application) param.thisObject,
-                                        lpparam.classLoader,
-                                        receiverClassName
-                                );
-                            } catch (Throwable t) {
-                                XposedBridge.log(TAG + " [auto streak onCreate fallback] " + t);
-                            }
-                        }
-                    }
-            );
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + " [auto streak init] " + t);
-        }
-    }
-
-    private String hookAutoStreakAlarmReceiver(final XC_LoadPackage.LoadPackageParam lpparam) {
-        for (final String className : AUTO_STREAK_RECEIVER_CANDIDATES) {
-            try {
-                Class<?> receiverClass = XposedHelpers.findClassIfExists(
-                        className,
-                        lpparam.classLoader
-                );
-                if (receiverClass == null) continue;
-
-                XposedHelpers.findAndHookMethod(
-                        receiverClass,
-                        "onReceive",
-                        android.content.Context.class,
-                        android.content.Intent.class,
-                        new XC_MethodHook() {
-                            @Override
-                            protected void beforeHookedMethod(MethodHookParam param) {
-                                android.content.Intent intent =
-                                        (android.content.Intent) param.args[1];
-                                if (intent == null) {
-                                    return;
-                                }
-                                String action = intent.getAction();
-                                if (!AutoStreakManager.ACTION_AUTO_STREAK.equals(action)
-                                        && !AutoStreakManager.ACTION_AUTO_STREAK_BACKUP.equals(
-                                        action)) {
-                                    return;
-                                }
-
-                                param.setResult(null);
-                                AutoStreakManager.onAlarm(
-                                        (android.content.Context) param.args[0]
-                                );
-                            }
-                        }
-                );
-                XposedBridge.log(TAG + ": auto streak alarm receiver=" + className);
-                return className;
-            } catch (Throwable t) {
-                XposedBridge.log(TAG + " [auto streak receiver " + className + "] " + t);
-            }
-        }
-
-        XposedBridge.log(TAG + ": no alarm receiver found; launch/heartbeat mode only");
-        return null;
     }
 
     private void installGoogleLoginFix(XC_LoadPackage.LoadPackageParam lpparam) {
